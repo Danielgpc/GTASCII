@@ -18,12 +18,12 @@ LIB = -L$(BREW_PREFIX)/opt/ncurses/lib -lncurses
 TARGET = bin/app
 
 # Source files
-SRC = src/main.cpp
+SRC = $(wildcard src/*.cc)
 
 all: $(TARGET)
 
 $(TARGET): $(SRC)
-	mkdir bin
+	mkdir -p bin
 	$(CXX) $(CXXFLAGS) $(INC) $(SRC) -o $(TARGET) $(LIB)
 
 clean:
@@ -33,46 +33,3 @@ run: all
 	./$(TARGET)
 
 .PHONY: all clean run
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

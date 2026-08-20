@@ -1,17 +1,20 @@
 #ifndef PLAYER_H
+#define PLAYER_H
+
 class Player {
 public:
   Player(float x = 0, float y = 0);
-  Player(Player &&) = default;
-  Player(const Player &) = default;
-  Player &operator=(Player &&) = default;
-  Player &operator=(const Player &) = default;
-  ~Player();
+  ~Player() = default;
 
-private:
+  void handleInput(int key);
+  void update(float dt);
+  void render() const;
+
+  float x, y;
+  float vx, vy;
+
+  float accel = 60.0f;
+  float friction = 6.0f;
 };
 
-Player::Player() {}
-
-Player::~Player() {}
 #endif // !PLAYER_H
