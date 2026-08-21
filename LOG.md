@@ -16,7 +16,8 @@
         - Handle input, update and render
     - Added player.cc to **SRC** in Makefile
     - Created ```defines.h``` for public definitions
-    - Added dt and traget FPS for main loop so the game is real time not turn based like other terminal-based roguelikes- Expanded world to a full **4×4 chunk grid** (64×64 tiles)
+    - Added dt and traget FPS for main loop so the game is real time not turn based like other terminal-based roguelikes
+    - Expanded world to a full **4×4 chunk grid** (64×64 tiles)
     - Added chunk files `assets/map/0_0.txt` … `3_3.txt` with varied glyph/color layouts
     - `loadAllChunks()` loads the entire map at startup
     - Camera follows the player and clamps at world edges
@@ -32,3 +33,10 @@
     - Switched from ACS box chars to plain ASCII (+ - |) so macOS no longer shows "?"
     - UI is a fixed 120x40 frame (does not stretch with terminal)
     - KEY_RESIZE handled: full clear + window recreate, leftover cells wiped
+
+## 2026-08-21
+- Updated player movement mechanics
+    - Implemented running (Shift/Uppercase keys) and walking (lowercase keys) with distinct acceleration values.
+    - Replaced global `MAX_SPEED` with a dynamic `currentMaxSpeed` variable to correctly enforce velocity caps based on the current movement state.
+- Improved Makefile build system
+    - Modified targets to compile individual `.o` object files into the `bin/` directory before linking the final executable.

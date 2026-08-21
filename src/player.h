@@ -16,8 +16,9 @@ public:
   float x, y;
   float vx, vy;
 
-  float accel = 60.0f;
+  float accel;
   float friction = 6.0f;
+  float currentMaxSpeed; // Replaces the global MAX_SPEED constant
 };
 
 #endif // !PLAYER_H

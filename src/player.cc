@@ -4,14 +4,26 @@
 Player::Player(float x, float y) : x(x), y(y), vx(0.0f), vy(0.0f) {
   accel = 15.0f;
   friction = 5.0f;
+  currentMaxSpeed = 3.5f;
 }
 
 void Player::handleInput(int key) {
+  // Check for uppercase keys (Shift)
+  bool isRunning = (key == 'W' || key == 'A' || key == 'S' || key == 'D');
+  
+  if (isRunning) {
+    accel = 10.0f;          // A bit lower than the original 15.0f
+    currentMaxSpeed = 7.0f; // A bit lower than the original 10.0f[cite: 6]
+  } else {
+    accel = 6.0f;           
+    currentMaxSpeed = 3.5f; 
+  }
+
   switch (key) {
-    case KEY_UP:    case 'w': vy -= accel; break;
-    case KEY_DOWN:  case 's': vy += accel; break;
-    case KEY_LEFT:  case 'a': vx -= accel; break;
-    case KEY_RIGHT: case 'd': vx += accel; break;
+    case KEY_UP:    case 'w': case 'W': vy -= accel; break;
+    case KEY_DOWN:  case 's': case 'S': vy += accel; break;
+    case KEY_LEFT:  case 'a': case 'A': vx -= accel; break;
+    case KEY_RIGHT: case 'd': case 'D': vx += accel; break;
     default: break;
   }
 }
@@ -25,6 +37,14 @@ void Player::update(float dt) {
   float damping = std::max(0.0f, 1.0f - friction * dt);
   vx *= damping;
   vy *= damping;
+
+  // velocity cap
+  float speed = std::sqrt(vx * vx + vy * vy);
+  if (speed > currentMaxSpeed) {
+    float scale = currentMaxSpeed / speed;
+    vx *= scale;
+    vy *= scale;
+  }
 }
 
 void Player::clampToWorld(int worldW, int worldH) {
