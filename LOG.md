@@ -40,3 +40,24 @@
     - Replaced global `MAX_SPEED` with a dynamic `currentMaxSpeed` variable to correctly enforce velocity caps based on the current movement state.
 - Improved Makefile build system
     - Modified targets to compile individual `.o` object files into the `bin/` directory before linking the final executable.
+
+## 2026-08-22
+- Restructured terminal UI layout to match sketch
+    - Top-left: fixed 120×40 game window
+    - Top-right: info panel (fills remaining width) — FPS/POS/CHK/VEL + HP/STM colored bars
+    - Bottom: full-width chat panel (fills remaining height)
+- Split logging out of UI into `logger.h` / `logger.cc` (UI delegates to Logger)
+- Renamed chunk module → map (`map.h` / `map.cc`); removed `chunk.h` / `chunk.cc`
+- Chunk size 16→64; world still 4×4 chunks → **256×256 tiles**
+- Chunk files now have three sections: GLYPHS, COLORS, TYPES
+    - TYPES: 0 normal, 1 solid, 2 water, 3 closed door (4 = open door at runtime)
+- Collision: solid tiles + closed doors block movement (axis-separated slide)
+- Water: movement speed ×0.35 while standing on water tiles
+- Doors: press `e` to toggle open/closed on adjacent/current door tile
+- New creative world (`tools/generate_world.py`):
+    - Road grid spanning chunks, residential houses, warehouses, downtown, industrial
+    - Parks with trees/bushes/flowers, lakes, south-east coastline
+    - Buildings intentionally cross chunk borders
+- Glyph palette: `. , ' = - # H + T Y * ~ o` (richer than old `#=.` only)
+- Chat commands: `/hp`, `/stm`, `/heal`, `/tp`
+- Updated `tools/map_to_chunks.py` for 64×64 + TYPES section

@@ -1,45 +1,44 @@
 #include "ui.h"
 #include "defines.h"
 
-#include <ctime>
-#include <cstring>
 #include <algorithm>
 #include <cstdio>
+#include <cstring>
+#include <ncurses.h>
 
 UI::UI() = default;
 
-UI::~UI() {
-  shutdown();
-}
-
-void UI::computeOrigin() {
-  originY = 0;
-  originX = 0;
-}
+UI::~UI() { shutdown(); }
 
 void UI::recreateWindows() {
   if (winGame) { delwin(winGame); winGame = nullptr; }
-  if (winSide) { delwin(winSide); winSide = nullptr; }
-
-  computeOrigin();
+  if (winInfo) { delwin(winInfo); winInfo = nullptr; }
+  if (winChat) { delwin(winChat); winChat = nullptr; }
 
   int termY, termX;
   getmaxyx(stdscr, termY, termX);
 
-  // Game is always fixed 120x40 at top-left
-  winGame = newwin(GAME_H, GAME_W, originY, originX);
+  winGame = newwin(GAME_H, GAME_W, 0, 0);
   if (winGame) keypad(winGame, TRUE);
 
-  // Side panel fills from col 120 to the end of the terminal; height stays SIDE_H
-  sideW = termX - GAME_W;
-  if (sideW < 0) sideW = 0;
+  infoW = termX - GAME_W;
+  if (infoW < 0) infoW = 0;
 
-  if (sideW >= SIDE_MIN_W) {
-    int sideH = std::min(SIDE_H, termY);
-    winSide = newwin(sideH, sideW, originY, originX + GAME_W);
-    if (winSide) keypad(winSide, TRUE);
+  if (infoW >= INFO_MIN_W) {
+    winInfo = newwin(GAME_H, infoW, 0, GAME_W);
+    if (winInfo) keypad(winInfo, TRUE);
   } else {
-    winSide = nullptr;
+    winInfo = nullptr;
+  }
+
+  chatH = termY - GAME_H;
+  if (chatH < 0) chatH = 0;
+
+  if (chatH >= CHAT_MIN_H) {
+    winChat = newwin(chatH, termX, GAME_H, 0);
+    if (winChat) keypad(winChat, TRUE);
+  } else {
+    winChat = nullptr;
   }
 }
 
@@ -50,7 +49,8 @@ bool UI::init() {
 
 void UI::shutdown() {
   if (winGame) { delwin(winGame); winGame = nullptr; }
-  if (winSide) { delwin(winSide); winSide = nullptr; }
+  if (winInfo) { delwin(winInfo); winInfo = nullptr; }
+  if (winChat) { delwin(winChat); winChat = nullptr; }
 }
 
 void UI::handleResize() {
@@ -63,11 +63,12 @@ void UI::handleResize() {
 
   int termY, termX;
   getmaxyx(stdscr, termY, termX);
-  int frameW = GAME_W + std::max(0, sideW);
-  int frameH = std::max(GAME_H, SIDE_H);
   for (int y = 0; y < termY; ++y) {
     for (int x = 0; x < termX; ++x) {
-      if (y < frameH && x < frameW) continue;
+      bool insideGame = (y < GAME_H && x < GAME_W);
+      bool insideInfo = (winInfo && y < GAME_H && x >= GAME_W && x < GAME_W + infoW);
+      bool insideChat = (winChat && y >= GAME_H && y < GAME_H + chatH);
+      if (insideGame || insideInfo || insideChat) continue;
       mvaddch(y, x, ' ');
     }
   }
@@ -130,26 +131,6 @@ std::vector<std::string> UI::wrapText(const std::string& text, int width) {
   return lines;
 }
 
-std::string UI::nowTimeString() const {
-  std::time_t t = std::time(nullptr);
-  std::tm* tm = std::localtime(&t);
-  char buf[16];
-  std::snprintf(buf, sizeof(buf), "%02d:%02d:%02d", tm->tm_hour, tm->tm_min, tm->tm_sec);
-  return buf;
-}
-
-const char* UI::levelTag(LogLevel level, const std::string& custom) const {
-  if (!custom.empty()) return custom.c_str();
-  switch (level) {
-    case LogLevel::DEBUG:  return "DEBUG";
-    case LogLevel::INFO:   return "INFO";
-    case LogLevel::WARN:   return "WARN";
-    case LogLevel::SYSTEM: return "SYSTEM";
-    case LogLevel::PLAYER: return "player";
-  }
-  return "INFO";
-}
-
 int UI::levelColor(LogLevel level) const {
   switch (level) {
     case LogLevel::DEBUG:  return 4;
@@ -162,23 +143,14 @@ int UI::levelColor(LogLevel level) const {
 }
 
 void UI::log(LogLevel level, const std::string& message, const std::string& tag) {
-  LogEntry e;
-  e.time = nowTimeString();
-  e.tag = levelTag(level, tag);
-  e.message = message;
-  e.level = level;
-  logEntries.push_back(e);
-  while (logEntries.size() > MAX_LOG) {
-    logEntries.pop_front();
-  }
+  log_.log(level, message, tag);
 }
-
-void UI::logInfo(const std::string& msg)   { log(LogLevel::INFO, msg); }
-void UI::logWarn(const std::string& msg)   { log(LogLevel::WARN, msg); }
-void UI::logDebug(const std::string& msg)  { log(LogLevel::DEBUG, msg); }
-void UI::logSystem(const std::string& msg) { log(LogLevel::SYSTEM, msg); }
+void UI::logInfo(const std::string& msg)   { log_.logInfo(msg); }
+void UI::logWarn(const std::string& msg)   { log_.logWarn(msg); }
+void UI::logDebug(const std::string& msg)  { log_.logDebug(msg); }
+void UI::logSystem(const std::string& msg) { log_.logSystem(msg); }
 void UI::logPlayer(const std::string& msg, const std::string& name) {
-  log(LogLevel::PLAYER, msg, name);
+  log_.logPlayer(msg, name);
 }
 
 void UI::setChatActive(bool active) {
@@ -220,12 +192,15 @@ bool UI::handleChatInput(int key, std::string& outMessage) {
 void UI::drawBorders() {
   drawAsciiBox(winGame, GAME_H, GAME_W);
 
-  if (winSide && sideW >= SIDE_MIN_W) {
-    int h = std::min(SIDE_H, getmaxy(winSide));
-    drawAsciiBox(winSide, h, sideW);
-    drawAsciiHLine(winSide, INFO_H - 1, sideW);
-    if (h > INPUT_H) {
-      drawAsciiHLine(winSide, h - INPUT_H, sideW);
+  if (winInfo && infoW >= INFO_MIN_W) {
+    drawAsciiBox(winInfo, GAME_H, infoW);
+  }
+
+  if (winChat && chatH >= CHAT_MIN_H) {
+    int cw = getmaxx(winChat);
+    drawAsciiBox(winChat, chatH, cw);
+    if (chatH > INPUT_H + 1) {
+      drawAsciiHLine(winChat, chatH - INPUT_H - 1, cw);
     }
   }
 }
@@ -239,45 +214,80 @@ void UI::clearGameView() {
   }
 }
 
-void UI::drawInfo(float fps, float px, float py, int chunkX, int chunkY, float vx, float vy) {
-  if (!winSide || sideW < SIDE_MIN_W) return;
+void UI::drawInfo(float fps, float px, float py, int chunkX, int chunkY,
+                  float vx, float vy, float hp, float stamina,
+                  float maxHp, float maxStamina) {
+  if (!winInfo || infoW < INFO_MIN_W) return;
 
-  for (int y = 1; y < INFO_H - 1; ++y) {
-    for (int x = 1; x < sideW - 1; ++x) {
-      mvwaddch(winSide, y, x, ' ');
+  for (int y = 1; y < GAME_H - 1; ++y) {
+    for (int x = 1; x < infoW - 1; ++x) {
+      mvwaddch(winInfo, y, x, ' ');
     }
   }
 
-  wattron(winSide, COLOR_PAIR(1) | A_BOLD);
-  mvwprintw(winSide, 1, 2, "GTASCII");
-  wattroff(winSide, COLOR_PAIR(1) | A_BOLD);
+  wattron(winInfo, COLOR_PAIR(1) | A_BOLD);
+  mvwprintw(winInfo, 1, 2, "GTASCII");
+  wattroff(winInfo, COLOR_PAIR(1) | A_BOLD);
 
-  mvwprintw(winSide, 2, 2, "FPS  %.1f", fps);
-  mvwprintw(winSide, 3, 2, "POS  %.1f  %.1f", px, py);
-  mvwprintw(winSide, 4, 2, "CHK  %d,%d", chunkX, chunkY);
-  mvwprintw(winSide, 5, 2, "VEL  %.1f  %.1f", vx, vy);
-  mvwprintw(winSide, 6, 2, "[t] chat  [q] quit");
+  mvwprintw(winInfo, 3, 2, "FPS  %.1f", fps);
+  mvwprintw(winInfo, 4, 2, "POS  %.1f  %.1f", px, py);
+  mvwprintw(winInfo, 5, 2, "CHK  %d,%d", chunkX, chunkY);
+  mvwprintw(winInfo, 6, 2, "VEL  %.1f  %.1f", vx, vy);
+
+  auto drawBar = [&](int row, const char* label, float current, float max) {
+    float ratio = (max > 0.0f) ? (current / max) : 0.0f;
+    if (ratio < 0.0f) ratio = 0.0f;
+    if (ratio > 1.0f) ratio = 1.0f;
+
+    int filled = static_cast<int>(ratio * 10.0f + 0.5f);
+    if (filled > 10) filled = 10;
+
+    int color;
+    if (ratio > 0.6f)      color = 1;
+    else if (ratio > 0.3f) color = 5;
+    else                   color = 3;
+
+    mvwprintw(winInfo, row, 2, "%-4s ", label);
+    mvwaddch(winInfo, row, 7, '[');
+
+    wattron(winInfo, COLOR_PAIR(color));
+    for (int i = 0; i < filled; ++i)
+      mvwaddch(winInfo, row, 8 + i, '=');
+    wattroff(winInfo, COLOR_PAIR(color));
+
+    for (int i = filled; i < 10; ++i)
+      mvwaddch(winInfo, row, 8 + i, ' ');
+
+    mvwaddch(winInfo, row, 18, ']');
+  };
+
+  drawBar(8, "HP",  hp,      maxHp);
+  drawBar(9, "STM", stamina, maxStamina);
+
+  mvwprintw(winInfo, 11, 2, "[t] chat");
+  mvwprintw(winInfo, 12, 2, "[e] door");
+  mvwprintw(winInfo, 13, 2, "[q] quit");
 }
 
 void UI::drawLog() {
-  if (!winSide || sideW < SIDE_MIN_W) return;
+  if (!winChat || chatH < CHAT_MIN_H) return;
 
-  int h = getmaxy(winSide);
-  int logTop = INFO_H;
-  int logBottom = h - INPUT_H - 1;
+  int cw = getmaxx(winChat);
+  int logTop = 1;
+  int logBottom = chatH - INPUT_H - 2;
   int maxLines = logBottom - logTop + 1;
   if (maxLines < 1) return;
 
   for (int y = logTop; y <= logBottom; ++y) {
-    for (int x = 1; x < sideW - 1; ++x) {
-      mvwaddch(winSide, y, x, ' ');
+    for (int x = 1; x < cw - 1; ++x) {
+      mvwaddch(winChat, y, x, ' ');
     }
   }
 
-  const int textW = sideTextW();
+  const int textW = chatTextW();
   std::vector<std::pair<std::string, int>> displayLines;
 
-  for (const auto& e : logEntries) {
+  for (const auto& e : log_.entries()) {
     int color = levelColor(e.level);
     char prefix[32];
     std::snprintf(prefix, sizeof(prefix), "%s %-6s ", e.time.c_str(), e.tag.c_str());
@@ -330,34 +340,35 @@ void UI::drawLog() {
 
   int start = std::max(0, static_cast<int>(displayLines.size()) - maxLines);
   int row = logTop;
-  for (size_t i = static_cast<size_t>(start); i < displayLines.size() && row <= logBottom; ++i, ++row) {
+  for (size_t i = static_cast<size_t>(start);
+       i < displayLines.size() && row <= logBottom; ++i, ++row) {
     const auto& [text, color] = displayLines[i];
     std::string clipped = text;
     if (static_cast<int>(clipped.size()) > textW) {
       clipped.resize(static_cast<size_t>(textW));
     }
-    wattron(winSide, COLOR_PAIR(color));
-    mvwprintw(winSide, row, 1, "%s", clipped.c_str());
-    wattroff(winSide, COLOR_PAIR(color));
+    wattron(winChat, COLOR_PAIR(color));
+    mvwprintw(winChat, row, 1, "%s", clipped.c_str());
+    wattroff(winChat, COLOR_PAIR(color));
   }
 }
 
 void UI::drawInput() {
-  if (!winSide || sideW < SIDE_MIN_W) return;
+  if (!winChat || chatH < CHAT_MIN_H) return;
 
-  int h = getmaxy(winSide);
-  int inputTop = h - INPUT_H + 1;
-  int inputBottom = h - 2;
+  int cw = getmaxx(winChat);
+  int inputTop = chatH - INPUT_H;
+  int inputBottom = chatH - 2;
   int inputRows = inputBottom - inputTop + 1;
   if (inputRows < 1) return;
 
   for (int y = inputTop; y <= inputBottom; ++y) {
-    for (int x = 1; x < sideW - 1; ++x) {
-      mvwaddch(winSide, y, x, ' ');
+    for (int x = 1; x < cw - 1; ++x) {
+      mvwaddch(winChat, y, x, ' ');
     }
   }
 
-  const int textW = sideTextW();
+  const int textW = chatTextW();
 
   if (chatActive) {
     std::string display = "> " + chatBuffer;
@@ -368,12 +379,12 @@ void UI::drawInput() {
       startLine = static_cast<int>(lines.size()) - inputRows;
     }
 
-    wattron(winSide, COLOR_PAIR(5) | A_BOLD);
+    wattron(winChat, COLOR_PAIR(5) | A_BOLD);
     for (int i = 0; i < inputRows && startLine + i < static_cast<int>(lines.size()); ++i) {
       const std::string& line = lines[static_cast<size_t>(startLine + i)];
-      mvwprintw(winSide, inputTop + i, 1, "%s", line.c_str());
+      mvwprintw(winChat, inputTop + i, 1, "%s", line.c_str());
     }
-    wattroff(winSide, COLOR_PAIR(5) | A_BOLD);
+    wattroff(winChat, COLOR_PAIR(5) | A_BOLD);
 
     int lastIdx = static_cast<int>(lines.size()) - 1 - startLine;
     if (lastIdx < 0) lastIdx = 0;
@@ -386,16 +397,17 @@ void UI::drawInput() {
       }
     }
     if (cursorCol > textW) cursorCol = textW;
-    wmove(winSide, inputTop + lastIdx, cursorCol);
+    wmove(winChat, inputTop + lastIdx, cursorCol);
   } else {
-    wattron(winSide, COLOR_PAIR(4));
-    mvwprintw(winSide, inputTop, 1, "> press t to chat");
-    wattroff(winSide, COLOR_PAIR(4));
+    wattron(winChat, COLOR_PAIR(4));
+    mvwprintw(winChat, inputTop, 1, "> press t to chat");
+    wattroff(winChat, COLOR_PAIR(4));
   }
 }
 
 void UI::refreshAll() {
   if (winGame) wnoutrefresh(winGame);
-  if (winSide) wnoutrefresh(winSide);
+  if (winInfo) wnoutrefresh(winInfo);
+  if (winChat) wnoutrefresh(winChat);
   doupdate();
 }
